@@ -206,12 +206,21 @@
 
 ## GitHub Push + One-Line Install
 
-- [ ] Initialize this directory as its own git repository instead of relying on the parent `~/` repo.
-- [ ] Add ignore rules for runtime/build artifacts so only project files are pushed.
-- [ ] Expose `nanocode` as the primary package and console-script while keeping `nanocli` as a compatibility alias.
-- [ ] Document one-line install from `https://github.com/keepkeen/nanocode.git`.
-- [ ] Verify local build/install from a git-backed source and push `main` to `keepkeen/nanocode.git`.
+- [x] Initialize this directory as its own git repository instead of relying on the parent `~/` repo.
+- [x] Add ignore rules for runtime/build artifacts so only project files are pushed.
+- [x] Expose `nanocode` as the primary package and console-script while keeping `nanocli` as a compatibility alias.
+- [x] Document one-line install from `https://github.com/keepkeen/nanocode.git`.
+- [x] Verify local build/install from a git-backed source and push `main` to `keepkeen/nanocode.git`.
 
 ## GitHub Push + One-Line Install Review
 
-- Pending implementation.
+- `My_agent` is now its own git repository with `.gitignore` entries for `.venv`, `.nanocli`, `dist`, caches, and egg-info artifacts, so pushing no longer risks pulling in unrelated files from the parent `~/` repo.
+- Packaging now publishes as `nanocode`, installs both `nanocode` and `nanocli` console scripts, and keeps the underlying `nanocli` Python module layout intact for compatibility.
+- README install docs now include a direct one-line git install: `python -m pip install "nanocode @ git+https://github.com/keepkeen/nanocode.git"`, plus the isolated `uv tool install git+https://github.com/keepkeen/nanocode.git` path.
+- Verification completed:
+  - `.venv/bin/pytest -ra` -> `25 passed, 3 skipped`
+  - `.venv/bin/nanocli release check --skip-tests` -> built `nanocode-0.1.0`
+  - `.venv/bin/python -m pip install --no-build-isolation --no-deps --prefix /tmp/nanocode-prefix "nanocode @ git+file:///Users/liuliming/code/My_agent"` -> passed
+  - `/tmp/nanocode-prefix/bin/nanocode --help` -> passed
+  - `/tmp/nanocode-prefix/bin/nanocli --help` -> passed
+  - `git push -u origin main` -> pushed to `https://github.com/keepkeen/nanocode.git`
