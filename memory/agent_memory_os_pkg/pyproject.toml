@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-memory-os"
+version = "0.2.0"
+description = "First-principles memory OS for cache-safe, stateful LLM agents"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "OpenAI" }]
+dependencies = []
+
+[tool.setuptools]
+packages = ["agent_memory_os", "agent_memory_os.providers"]

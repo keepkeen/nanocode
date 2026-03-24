@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multi-vendor-skills"
+version = "0.1.0"
+description = "Unified skill abstraction and provider adapters for ChatGPT, Claude Code, DeepSeek, GLM, MiniMax, and Kimi"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "OpenAI ChatGPT" }
+]
+dependencies = []
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["multi_vendor_skills*"]

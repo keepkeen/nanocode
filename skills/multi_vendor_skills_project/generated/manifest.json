@@ -1,0 +1,30 @@
+{
+  "chatgpt_skill": [
+    "chatgpt/travel-weather-briefing/SKILL.md",
+    "chatgpt/travel-weather-briefing/references/TOOLING.md",
+    "chatgpt/travel-weather-briefing/scripts/get_mock_weather.py"
+  ],
+  "claude_skill": [
+    "claude-code/travel-weather-briefing/SKILL.md",
+    "claude-code/travel-weather-briefing/references/TOOLING.md",
+    "claude-code/travel-weather-briefing/scripts/get_mock_weather.py"
+  ],
+  "claude_subagent": [
+    "claude-code/travel-weather-briefing.md"
+  ],
+  "deepseek_tools": [
+    "deepseek/tools.json"
+  ],
+  "glm_tools": [
+    "glm/tools.json"
+  ],
+  "minimax_openai_tools": [
+    "minimax/openai-tools.json"
+  ],
+  "minimax_anthropic_tools": [
+    "minimax/anthropic-tools.json"
+  ],
+  "kimi_tools": [
+    "kimi/tools.json"
+  ]
+}

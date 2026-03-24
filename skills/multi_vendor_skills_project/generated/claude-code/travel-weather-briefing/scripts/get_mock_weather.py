@@ -1,0 +1,1 @@
+from multi_vendor_skills.examples.weather_skill import get_mock_weather

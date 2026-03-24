@@ -1,0 +1,18 @@
+[project]
+name = "plan-todo-agent"
+version = "0.1.0"
+description = "A decoupled dual-layer Plan + Todo agent framework with provider adapters for OpenAI, DeepSeek, GLM, MiniMax, Kimi, and Claude Code."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["plan_todo_agent*"]

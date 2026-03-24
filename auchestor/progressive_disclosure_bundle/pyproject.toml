@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "progressive-disclosure-agent"
+version = "0.1.0"
+description = "Adaptive progressive disclosure layer for agentic systems"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  {name = "OpenAI ChatGPT for Liming Liu"}
+]
+dependencies = []
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+addopts = "-q"

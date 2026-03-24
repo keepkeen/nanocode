@@ -1,0 +1,421 @@
+{
+  "openai_chatgpt": {
+    "definition": {
+      "name": "research-analyst",
+      "instructions": "You are a senior research sub-agent. Isolate the task, extract evidence, compress context by subgoal, and return a structured, implementation-ready answer.\n\nFocus on official documentation, recent papers, open-source projects, and actionable engineering implications. Prefer crisp sections over verbose prose.",
+      "handoff_description": "Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.",
+      "model": "gpt-5",
+      "tools": [
+        {
+          "type": "function",
+          "name": "web_search",
+          "description": "Search official documentation, papers, and repositories.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "Search query"
+              },
+              "top_k": {
+                "type": "integer",
+                "description": "Maximum result count",
+                "default": 5
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        },
+        {
+          "type": "function",
+          "name": "emit_json_report",
+          "description": "Return a strict JSON report for downstream orchestration.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "body": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "body"
+            ]
+          }
+        }
+      ]
+    },
+    "invocation_example": {
+      "sdk": "openai-agents-python",
+      "example": {
+        "triage_agent": {
+          "name": "Triage Agent",
+          "handoffs": [
+            "research-analyst"
+          ]
+        },
+        "sample_input": "请调研 sub-agent 架构，比较官方文档、论文和开源实现，并给出代码框架建议。"
+      },
+      "responses_api_payload": {
+        "model": "gpt-5",
+        "input": "请调研 sub-agent 架构，比较官方文档、论文和开源实现，并给出代码框架建议。",
+        "text": {
+          "format": {
+            "type": "json_object"
+          }
+        },
+        "tools": [
+          {
+            "type": "function",
+            "name": "delegate_to_research_analyst",
+            "description": "Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "task": {
+                  "type": "string",
+                  "description": "Delegated task"
+                }
+              },
+              "required": [
+                "task"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      }
+    },
+    "notes": [
+      "OpenAI Agents SDK uses handoffs between specialized agents.",
+      "Responses API can represent sub-agent delegation as a function tool for provider-agnostic orchestration."
+    ]
+  },
+  "claude_code": {
+    "definition": "---\nname: research-analyst\ndescription: Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.\ntools: web_search, emit_json_report\nmodel: sonnet\n---\nYou are a senior research sub-agent. Isolate the task, extract evidence, compress context by subgoal, and return a structured, implementation-ready answer.\n\nFocus on official documentation, recent papers, open-source projects, and actionable engineering implications. Prefer crisp sections over verbose prose.",
+    "invocation_example": {
+      "cli": [
+        "Use the research-analyst subagent to handle: 请调研 sub-agent 架构，比较官方文档、论文和开源实现，并给出代码框架建议。",
+        "@agent-research-analyst 请调研 sub-agent 架构，比较官方文档、论文和开源实现，并给出代码框架建议。",
+        "claude --agent research-analyst"
+      ],
+      "agent_sdk": {
+        "name": "research-analyst",
+        "description": "Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.",
+        "prompt": "You are a senior research sub-agent. Isolate the task, extract evidence, compress context by subgoal, and return a structured, implementation-ready answer.\n\nFocus on official documentation, recent papers, open-source projects, and actionable engineering implications. Prefer crisp sections over verbose prose.",
+        "model": "sonnet"
+      }
+    },
+    "notes": [
+      "Claude Code subagents are stored as Markdown files with YAML frontmatter.",
+      "Claude Agent SDK can also define subagents programmatically or via filesystem-based agent files."
+    ]
+  },
+  "deepseek": {
+    "definition": {
+      "type": "function",
+      "function": {
+        "name": "delegate_to_research_analyst",
+        "description": "Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "Delegated task"
+            },
+            "shared_context": {
+              "type": "object",
+              "description": "Optional context"
+            }
+          },
+          "required": [
+            "task"
+          ]
+        }
+      }
+    },
+    "invocation_example": {
+      "base_url": "https://api.deepseek.com",
+      "model": "deepseek-chat",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a senior research sub-agent. Isolate the task, extract evidence, compress context by subgoal, and return a structured, implementation-ready answer."
+        },
+        {
+          "role": "user",
+          "content": "请调研 sub-agent 架构，比较官方文档、论文和开源实现，并给出代码框架建议。"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "delegate_to_research_analyst",
+            "description": "Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "task": {
+                  "type": "string",
+                  "description": "Delegated task"
+                },
+                "shared_context": {
+                  "type": "object",
+                  "description": "Optional context"
+                }
+              },
+              "required": [
+                "task"
+              ]
+            }
+          }
+        }
+      ],
+      "response_format": {
+        "type": "json_object"
+      }
+    },
+    "notes": [
+      "DeepSeek exposes OpenAI-compatible chat completions plus function calling and JSON output.",
+      "This adapter maps sub-agent delegation to a function tool because DeepSeek does not expose a separate named subagent config page in the surveyed docs."
+    ]
+  },
+  "glm": {
+    "definition": {
+      "type": "function",
+      "function": {
+        "name": "delegate_to_research_analyst",
+        "description": "Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "Delegated task"
+            },
+            "memory_snapshot": {
+              "type": "string",
+              "description": "Compressed context"
+            }
+          },
+          "required": [
+            "task"
+          ]
+        }
+      }
+    },
+    "invocation_example": {
+      "endpoint": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "model": "glm-5",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a senior research sub-agent. Isolate the task, extract evidence, compress context by subgoal, and return a structured, implementation-ready answer."
+        },
+        {
+          "role": "user",
+          "content": "请调研 sub-agent 架构，比较官方文档、论文和开源实现，并给出代码框架建议。"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "delegate_to_research_analyst",
+            "description": "Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "task": {
+                  "type": "string",
+                  "description": "Delegated task"
+                },
+                "memory_snapshot": {
+                  "type": "string",
+                  "description": "Compressed context"
+                }
+              },
+              "required": [
+                "task"
+              ]
+            }
+          }
+        }
+      ],
+      "tool_choice": "auto",
+      "response_format": {
+        "type": "json_object"
+      }
+    },
+    "notes": [
+      "GLM officially documents tool calling, JSON structured output, and MCP-based agent extensions.",
+      "The adapter uses function calling for delegation and leaves MCP tools orthogonal to sub-agent routing."
+    ]
+  },
+  "kimi": {
+    "definition": {
+      "type": "function",
+      "function": {
+        "name": "delegate_to_research_analyst",
+        "description": "Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "Delegated task"
+            },
+            "language": {
+              "type": "string",
+              "description": "Preferred output language"
+            }
+          },
+          "required": [
+            "task"
+          ]
+        }
+      }
+    },
+    "invocation_example": {
+      "base_url": "https://api.moonshot.cn/v1",
+      "model": "kimi-k2.5",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a senior research sub-agent. Isolate the task, extract evidence, compress context by subgoal, and return a structured, implementation-ready answer."
+        },
+        {
+          "role": "user",
+          "content": "请调研 sub-agent 架构，比较官方文档、论文和开源实现，并给出代码框架建议。"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "delegate_to_research_analyst",
+            "description": "Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "task": {
+                  "type": "string",
+                  "description": "Delegated task"
+                },
+                "language": {
+                  "type": "string",
+                  "description": "Preferred output language"
+                }
+              },
+              "required": [
+                "task"
+              ]
+            }
+          }
+        }
+      ],
+      "official_formula_examples": [
+        "moonshot/web-search:latest",
+        "moonshot/rethink:latest",
+        "moonshot/code_runner:latest"
+      ]
+    },
+    "notes": [
+      "Kimi supports generic function tools and also official Formula tools.",
+      "Kimi CLI additionally supports ACP for agent client integration and MCP config files for external tools."
+    ]
+  },
+  "minimax": {
+    "definition": {
+      "openai_compatible": {
+        "base_url": "https://api.minimax.io/v1",
+        "model": "MiniMax-M2.7",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a senior research sub-agent. Isolate the task, extract evidence, compress context by subgoal, and return a structured, implementation-ready answer."
+          },
+          {
+            "role": "user",
+            "content": "请调研 sub-agent 架构，比较官方文档、论文和开源实现，并给出代码框架建议。"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "delegate_to_research_analyst",
+              "description": "Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string"
+                  },
+                  "reasoning_mode": {
+                    "type": "string",
+                    "enum": [
+                      "split",
+                      "inline"
+                    ]
+                  }
+                },
+                "required": [
+                  "task"
+                ]
+              }
+            }
+          }
+        ],
+        "extra_body": {
+          "reasoning_split": true
+        }
+      },
+      "anthropic_compatible": {
+        "base_url": "https://api.minimax.io/anthropic",
+        "model": "MiniMax-M2.7",
+        "messages": [
+          {
+            "role": "user",
+            "content": "请调研 sub-agent 架构，比较官方文档、论文和开源实现，并给出代码框架建议。"
+          }
+        ],
+        "system": "You are a senior research sub-agent. Isolate the task, extract evidence, compress context by subgoal, and return a structured, implementation-ready answer.",
+        "tools": [
+          {
+            "name": "delegate_to_research_analyst",
+            "description": "Research specialist for document survey, latest papers, benchmarks, and implementation references. Use proactively for sub-agent architecture analysis.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "task": {
+                  "type": "string"
+                },
+                "memory_snapshot": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "task"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "invocation_example": {
+      "sample_task": "请调研 sub-agent 架构，比较官方文档、论文和开源实现，并给出代码框架建议。"
+    },
+    "notes": [
+      "MiniMax publishes both OpenAI-compatible and Anthropic-compatible APIs.",
+      "For M2.7 interleaved thinking, the full response including reasoning fields should be appended back into history between tool rounds."
+    ]
+  }
+}

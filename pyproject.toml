@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nanocode"
+version = "0.1.0"
+description = "A local coding agent shell with memory OS, trace capture, and model profile switching."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "aiohttp>=3.11.0",
+  "platformdirs>=4.2.0",
+  "requests>=2.32.0",
+  "rich>=13.9.0",
+  "textual>=0.86.0",
+  "typer>=0.16.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/keepkeen/nanocode"
+Repository = "https://github.com/keepkeen/nanocode"
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2.2",
+  "pytest>=8.3.0",
+  "twine>=6.1.0",
+]
+
+[project.scripts]
+nanocode = "nanocli.cli:app"
+nanocli = "nanocli.cli:app"
+
+[tool.setuptools.package-dir]
+"" = "."
+
+[tool.setuptools.packages.find]
+where = [
+  "src",
+  "agent_loop/plan_todo_agent",
+  "memory/agent_memory_os_pkg",
+  "tool_use",
+  "tool_use/optimized_agent_tools",
+  "mcp/mcp_polyglot",
+  "auchestor/progressive_disclosure_bundle/src",
+  "skills/multi_vendor_skills_project",
+  "sub_agent/subagent_research",
+]
+include = [
+  "nanocli*",
+  "plan_todo_agent*",
+  "agent_memory_os*",
+  "multi_provider_tooluse_demo*",
+  "agent_tools*",
+  "mcp_polyglot*",
+  "progressive_disclosure*",
+  "multi_vendor_skills*",
+  "subagent_framework*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [
+  "src",
+  "agent_loop/plan_todo_agent",
+  "memory/agent_memory_os_pkg",
+  "tool_use",
+  "tool_use/optimized_agent_tools",
+  "mcp/mcp_polyglot",
+  "auchestor/progressive_disclosure_bundle/src",
+  "skills/multi_vendor_skills_project",
+  "sub_agent/subagent_research",
+]
+addopts = "-q"

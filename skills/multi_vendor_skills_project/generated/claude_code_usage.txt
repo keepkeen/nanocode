@@ -1,0 +1,3 @@
+Option A: install the rendered skill package via Claude skills/plugin workflow.
+Option B: use the rendered subagent file under .claude/agents/.
+Example prompt: Use the travel-weather-briefing skill for Beijing for 2 days.
