@@ -42,6 +42,13 @@ Start an interactive coding session directly:
 nanocode
 ```
 
+Inside the session, the first-run onboarding flow is:
+
+```text
+/models
+/apikey set openai <your-key>
+```
+
 Start with an initial prompt:
 
 ```bash
@@ -58,6 +65,14 @@ Run one prompt and exit:
 
 ```bash
 nanocode --print "Summarize the current repository and propose the next step"
+```
+
+Manage stored API keys without editing shell rc files:
+
+```bash
+nanocode apikey list
+nanocode apikey set openai <your-key>
+nanocode apikey set claude <your-key> --scope project
 ```
 
 Create a config file at `~/.config/nanocli/config.toml` or `.nanocli/config.toml`:
@@ -101,6 +116,11 @@ Available REPL commands:
 /help
 /session
 /status
+/models
+/models set <profile>
+/apikey
+/apikey set <profile> [key] [global|project]
+/activity on|off
 /model <profile>
 /resume <session|last>
 /clear
@@ -118,6 +138,8 @@ Available REPL commands:
 /trace
 /quit
 ```
+
+Each turn now prints a compact activity timeline by default so model requests, tool calls, plan updates, and other agent actions are visible without opening the trace inspector.
 
 Planner commands:
 
@@ -138,6 +160,15 @@ nanocli memory candidates
 nanocli memory promote <candidate-id>
 nanocli memory reject <candidate-id>
 nanocli memory rebuild
+```
+
+Inspect configured models and stored API-key status:
+
+```bash
+nanocode models list
+nanocode models current
+nanocode apikey list
+nanocode apikey clear openai
 ```
 
 Render or install skills:

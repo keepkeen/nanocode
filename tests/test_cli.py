@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from typer.testing import CliRunner
 
 from nanocli.cli import app
@@ -88,3 +90,65 @@ def test_cli_root_starts_repl_and_supports_clear(tmp_path, monkeypatch):
 
     runtime = AgentRuntime(cwd)
     assert len(runtime.list_sessions(limit=10)) == 2
+
+
+def test_cli_repl_supports_models_apikey_and_activity(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg_config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg_data"))
+    cwd = tmp_path / "repo"
+    _write_basic_config(cwd)
+    monkeypatch.chdir(cwd)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["--no-execute"],
+        input="/models\n/apikey set openai sk-test-12345678\n/activity off\n/status\n/quit\n",
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "profiles" in result.stdout.lower()
+    assert "stored OPENAI_API_KEY".lower() in result.stdout.lower()
+    assert "activity" in result.stdout.lower()
+
+    runtime = AgentRuntime(cwd)
+    auth_payload = json.loads(runtime.paths.global_auth.read_text(encoding="utf-8"))
+    assert auth_payload["keys"]["OPENAI_API_KEY"]["value"] == "sk-test-12345678"
+
+
+def test_cli_print_mode_displays_activity(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg_config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg_data"))
+    cwd = tmp_path / "repo"
+    _write_basic_config(cwd)
+    monkeypatch.chdir(cwd)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["--no-execute", "--print", "Research", "the", "planner"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "activity" in result.stdout.lower()
+    assert "planner state persisted" in result.stdout.lower()
+
+
+def test_runtime_resolves_stored_api_key_for_execution(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg_config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg_data"))
+    cwd = tmp_path / "repo"
+    _write_basic_config(cwd)
+    monkeypatch.chdir(cwd)
+
+    runtime = AgentRuntime(cwd)
+    runtime.set_api_key("openai", "sk-runtime-12345678", scope="project")
+
+    captured: dict[str, str] = {}
+
+    def fake_invoke(request, profile, api_key):
+        captured["api_key"] = api_key
+        return {"output_text": "Stored auth works."}
+
+    monkeypatch.setattr(runtime, "_invoke_provider", fake_invoke)
+    result = runtime.run("Test stored API key resolution", execute=True)
+
+    assert result.summary.status.value == "completed"
+    assert captured["api_key"] == "sk-runtime-12345678"

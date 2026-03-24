@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 from dataclasses import dataclass
 import json
-import os
 
 from agent_memory_os import ClaudeCodeMemoryExporter, Message, MessageRole
 from agent_memory_os.models import ProviderRequest, ToolSchema
@@ -24,6 +23,7 @@ from progressive_disclosure import ProgressiveDisclosureManager
 from progressive_disclosure.domain import ActionKind, ActionRecord, AgentPhase, DisclosureContext, DisclosurePreferences, TaskRisk, TaskStateSnapshot
 from progressive_disclosure.events import AgentEvent, EventKind
 
+from .auth import AuthManager
 from .config import load_config
 from .mcp_client import AsyncRuntimeMcpServer, McpClientManager, provider_supports_native_mcp, resolve_mcp_integration_mode
 from .memory_runtime import CompositeMemoryRuntime
@@ -71,6 +71,7 @@ class AgentRuntime:
         self.paths.project_dir.mkdir(parents=True, exist_ok=True)
         self.store = LocalStateStore(self.paths.db_path, self.paths.artifacts_dir)
         self.memory_store = SQLiteEventStore(self.paths.db_path)
+        self.auth = AuthManager(self.paths)
         self.memory = CompositeMemoryRuntime(
             store=self.memory_store,
             project_namespace=self._project_namespace(),
@@ -331,9 +332,13 @@ class AgentRuntime:
 
         try:
             if execute:
-                api_key = os.getenv(profile.api_key_env)
-                if not api_key:
-                    raise RuntimeError(f"Missing API key env var: {profile.api_key_env}")
+                api_key_resolution = self.auth.resolve_api_key(profile)
+                if not api_key_resolution.value:
+                    raise RuntimeError(
+                        f"Missing API key for profile {profile.name}; set {profile.api_key_env} in the environment "
+                        "or store it with `nanocode apikey set`."
+                    )
+                api_key = api_key_resolution.value
                 disclosures.extend(self._emit_disclosure(run_summary.run_id, state, EventKind.ACTION_STARTED, objective, session_id=session_id, action_target=profile.provider))
                 if profile.tool_mode == "auto":
                     loop = ProviderToolLoop(
@@ -452,6 +457,28 @@ class AgentRuntime:
 
     def list_runs(self, limit: int = 20):
         return self.store.list_runs(limit=limit)
+
+    def list_profile_statuses(self) -> list[dict[str, Any]]:
+        return self.auth.list_profile_statuses(self.config.profiles)
+
+    def resolve_api_key_target(self, selector: str) -> dict[str, str]:
+        if selector in self.config.profiles:
+            profile = self.config.profiles[selector]
+            return {"profile": profile.name, "api_key_env": profile.api_key_env}
+        for profile in self.config.profiles.values():
+            if profile.model == selector or profile.api_key_env == selector:
+                return {"profile": profile.name, "api_key_env": profile.api_key_env}
+        raise KeyError(f"Unknown profile/model/api_key selector: {selector}")
+
+    def set_api_key(self, selector: str, value: str, *, scope: str = "global") -> dict[str, Any]:
+        target = self.resolve_api_key_target(selector)
+        payload = self.auth.set_api_key(target["api_key_env"], value, scope=scope)
+        return {**target, **payload}
+
+    def clear_api_key(self, selector: str, *, scope: str = "global") -> dict[str, Any]:
+        target = self.resolve_api_key_target(selector)
+        payload = self.auth.clear_api_key(target["api_key_env"], scope=scope)
+        return {**target, **payload}
 
     def get_run(self, run_id: str):
         return self.store.get_run(run_id)

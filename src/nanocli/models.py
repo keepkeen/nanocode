@@ -170,6 +170,8 @@ class LiveTestOptions:
 class NanocliPaths:
     global_config: Path
     project_config: Path
+    global_auth: Path
+    project_auth: Path
     data_dir: Path
     project_dir: Path
     db_path: Path

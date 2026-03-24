@@ -248,3 +248,31 @@
   - `printf '/status\n/quit\n' | /tmp/nanocode-cli.xGOl8T/bin/nanocode --no-execute`
   - `/tmp/nanocode-cli.xGOl8T/bin/nanocode --continue --no-execute --print Follow up`
   - `/tmp/nanocode-cli.xGOl8T/bin/nanocli --no-execute --print Follow up`
+
+## CLI Onboarding + Slash Commands
+
+- [x] Add persistent auth storage for provider API keys at global and project scope.
+- [x] Resolve provider API keys from env, project auth, or global auth during runtime execution.
+- [x] Add Codex-style `/models` slash command with list/current/set behavior and auth visibility.
+- [x] Add `/apikey` slash command family to show/set/clear stored keys without editing shell env vars.
+- [x] Add default per-turn activity output plus `/activity on|off` to control it.
+- [x] Update README quick start and REPL docs to show the new native onboarding flow.
+- [x] Add CLI/runtime tests for auth resolution, slash commands, and activity rendering.
+- [x] Run pytest, release validation, and install/CLI smoke checks after implementation.
+
+## CLI Onboarding + Slash Commands Review
+
+- `nanocode` now has a real local onboarding path for credentials and model selection instead of assuming shell env setup: API keys can be stored in `~/.config/nanocli/auth.json` or `.nanocli/auth.json`, resolved with `env -> project auth -> global auth` priority, and reused by runtime provider calls.
+- The REPL now exposes `/models`, `/models current`, `/models set`, `/apikey`, `/apikey set`, `/apikey clear`, and `/activity on|off`, with status views showing auth availability and the current per-session profile.
+- Every turn now prints a compact activity table by default, so planning, provider compilation, tool calls, and status disclosures are visible in the terminal without manually opening traces.
+- The top-level CLI also gained `nanocode apikey list|set|clear` and richer `nanocode models list|current`, so users can set up credentials before entering the REPL.
+- Verification completed:
+  - `. .venv/bin/activate && pytest -ra` -> `32 passed, 1 skipped`
+  - `.venv/bin/nanocli release check --skip-tests`
+  - `XDG_CONFIG_HOME=/tmp/nanocode_cfg XDG_DATA_HOME=/tmp/nanocode_data .venv/bin/python -m nanocli.cli --no-execute --print "Summarize the planner runtime"`
+  - `XDG_CONFIG_HOME=/tmp/nanocode_cfg XDG_DATA_HOME=/tmp/nanocode_data .venv/bin/python -m nanocli.cli apikey set openai sk-smoke-12345678 --scope project`
+  - `XDG_CONFIG_HOME=/tmp/nanocode_cfg XDG_DATA_HOME=/tmp/nanocode_data .venv/bin/python -m nanocli.cli models current`
+  - `printf '/models\n/apikey\n/activity off\n/status\n/quit\n' | XDG_CONFIG_HOME=/tmp/nanocode_cfg XDG_DATA_HOME=/tmp/nanocode_data .venv/bin/python -m nanocli.cli --no-execute`
+  - `.venv/bin/python -m pip install --no-build-isolation --no-deps --prefix /tmp/nanocode-install.HP4yh9 /Users/liuliming/code/My_agent`
+  - `XDG_CONFIG_HOME=/tmp/nanocode_cfg XDG_DATA_HOME=/tmp/nanocode_data /tmp/nanocode-install.HP4yh9/bin/nanocode --help`
+  - `XDG_CONFIG_HOME=/tmp/nanocode_cfg XDG_DATA_HOME=/tmp/nanocode_data /tmp/nanocode-install.HP4yh9/bin/nanocode --no-execute --print "Summarize the planner runtime"`

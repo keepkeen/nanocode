@@ -17,7 +17,7 @@ from rich.table import Table
 from typer.core import TyperGroup
 
 from .mcp_client import call_server_tool, inspect_server, list_server_tools, ping_server, render_server_payload, serve_http, serve_stdio
-from .models import SessionSummary
+from .models import RunResult, SessionSummary, TraceKind
 from .runtime import AgentRuntime
 from .tui import NanocliInspectorApp
 
@@ -45,6 +45,7 @@ plan_app = typer.Typer(help="Inspect and update persisted planner state.", no_ar
 trace_app = typer.Typer(help="Inspect recorded run traces.", no_args_is_help=True)
 memory_app = typer.Typer(help="Inspect persisted memory state.", no_args_is_help=True)
 models_app = typer.Typer(help="Inspect configured model profiles.", no_args_is_help=True)
+apikey_app = typer.Typer(help="Manage stored provider API keys.", no_args_is_help=True)
 mcp_app = typer.Typer(help="Inspect configured MCP servers.", no_args_is_help=True)
 skills_app = typer.Typer(help="Inspect and manage runtime skills.", no_args_is_help=True)
 subagents_app = typer.Typer(help="Inspect and trigger local subagents.", no_args_is_help=True)
@@ -54,6 +55,7 @@ app.add_typer(plan_app, name="plan")
 app.add_typer(trace_app, name="trace")
 app.add_typer(memory_app, name="memory")
 app.add_typer(models_app, name="models")
+app.add_typer(apikey_app, name="apikey")
 app.add_typer(mcp_app, name="mcp")
 app.add_typer(skills_app, name="skills")
 app.add_typer(subagents_app, name="subagents")
@@ -145,6 +147,98 @@ def _print_session_banner(session: SessionSummary, *, skills: list[str], use_sub
     )
 
 
+def _auth_status_text(runtime: AgentRuntime, profile_name: str | None) -> str:
+    if not profile_name:
+        return "-"
+    profile = runtime.resolve_profile(profile_name)
+    resolution = runtime.auth.resolve_api_key(profile)
+    if not resolution.present:
+        return f"missing ({profile.api_key_env})"
+    return f"{resolution.source} {resolution.masked_value}"
+
+
+def _print_auth_hint(runtime: AgentRuntime, *, profile_name: str | None, execute: bool) -> None:
+    if not execute or not profile_name:
+        return
+    profile = runtime.resolve_profile(profile_name)
+    resolution = runtime.auth.resolve_api_key(profile)
+    if resolution.present:
+        return
+    console.print(
+        f"[yellow]No API key configured for {profile.name} ({profile.api_key_env}). "
+        f"Use /apikey set {profile.name} <key> or export {profile.api_key_env}.[/yellow]"
+    )
+
+
+def _print_models_table(runtime: AgentRuntime, *, active_profile: str | None) -> None:
+    table = Table(title="Profiles")
+    table.add_column("active")
+    table.add_column("name")
+    table.add_column("provider")
+    table.add_column("model")
+    table.add_column("auth")
+    for row in runtime.list_profile_statuses():
+        auth_text = f"{row['source']} {row['masked_value']}" if row["present"] else f"missing ({row['api_key_env']})"
+        table.add_row("*" if row["profile"] == active_profile else "", row["profile"], row["provider"], row["model"], auth_text)
+    console.print(table)
+
+
+def _print_apikey_table(runtime: AgentRuntime, *, active_profile: str | None = None) -> None:
+    table = Table(title="API Keys")
+    table.add_column("active")
+    table.add_column("profile")
+    table.add_column("env")
+    table.add_column("source")
+    table.add_column("value")
+    for row in runtime.list_profile_statuses():
+        table.add_row(
+            "*" if row["profile"] == active_profile else "",
+            row["profile"],
+            row["api_key_env"],
+            row["source"],
+            row["masked_value"] if row["present"] else "-",
+        )
+    console.print(table)
+
+
+def _format_trace_kind(kind: TraceKind) -> str:
+    return {
+        TraceKind.PLAN: "plan",
+        TraceKind.MEMORY: "memory",
+        TraceKind.PROVIDER_REQUEST: "model",
+        TraceKind.PROVIDER_RESPONSE: "reply",
+        TraceKind.TOOL: "tool",
+        TraceKind.DISCLOSURE: "status",
+        TraceKind.NOTE: "note",
+        TraceKind.EVENT: "event",
+    }.get(kind, kind.value)
+
+
+def _print_activity(result: RunResult, *, enabled: bool = True) -> None:
+    if not enabled:
+        return
+    interesting = [
+        trace for trace in result.traces if trace.kind in {
+            TraceKind.PLAN,
+            TraceKind.MEMORY,
+            TraceKind.PROVIDER_REQUEST,
+            TraceKind.PROVIDER_RESPONSE,
+            TraceKind.TOOL,
+            TraceKind.DISCLOSURE,
+            TraceKind.NOTE,
+            TraceKind.EVENT,
+        }
+    ]
+    if not interesting:
+        return
+    table = Table(title="Activity")
+    table.add_column("kind")
+    table.add_column("message")
+    for trace in interesting[-10:]:
+        table.add_row(_format_trace_kind(trace.kind), trace.message)
+    console.print(table)
+
+
 def _print_status(runtime: AgentRuntime, *, state: dict[str, object]) -> None:
     session = runtime.get_session(str(state["session_id"]))
     table = Table(title="nanocode status")
@@ -158,12 +252,16 @@ def _print_status(runtime: AgentRuntime, *, state: dict[str, object]) -> None:
     table.add_row("subagents", "on" if state["subagents"] else "off")
     table.add_row("web", "on" if state["allow_web"] else "off")
     table.add_row("execute", "on" if state["execute"] else "off")
+    table.add_row("activity", "on" if state["activity"] else "off")
+    table.add_row("auth", _auth_status_text(runtime, str(state["profile"]) if state["profile"] else None))
     console.print(table)
 
 
 def _print_slash_help() -> None:
     console.print(
-        "/help, /session, /status, /model <profile|model>, /resume <session|last>, "
+        "/help, /session, /status, /models, /models set <profile|model>, /model <profile|model>, "
+        "/apikey, /apikey set <profile> [key] [global|project], /apikey clear <profile> [global|project], "
+        "/activity on|off, /resume <session|last>, "
         "/clear, /new, /skills, /skills add <name>, /skills drop <name>, /subagents on|off, "
         "/permissions, /mcp, /todo, /done <step_id>, /block <step_id> [reason], "
         "/replan, /compact [instructions], /trace, /quit"
@@ -202,18 +300,68 @@ def _handle_chat_command(runtime: AgentRuntime, line: str, *, state: dict[str, o
     if command == "status":
         _print_status(runtime, state=state)
         return True
-    if command == "model":
-        if len(parts) < 2:
+    if command in {"model", "models"}:
+        if len(parts) == 1 or parts[1] in {"list", "ls"}:
+            _print_models_table(runtime, active_profile=str(state["profile"]) if state["profile"] else None)
+            return True
+        if parts[1] == "current":
             profile_name = str(state["profile"])
             profile = runtime.resolve_profile(profile_name)
-            console.print(f"profile={profile.name}  provider={profile.provider}  model={profile.model}")
+            console.print(
+                f"profile={profile.name}  provider={profile.provider}  model={profile.model}  "
+                f"auth={_auth_status_text(runtime, profile.name)}"
+            )
+            return True
+        selector = parts[1] if command == "model" else (parts[2] if len(parts) >= 3 and parts[1] == "set" else None)
+        if selector is None:
+            console.print("usage: /models | /models current | /models set <profile|model>")
             return True
         try:
-            state["profile"] = _resolve_profile_selector(runtime, parts[1])
+            state["profile"] = _resolve_profile_selector(runtime, selector)
         except typer.BadParameter as exc:
             console.print(str(exc))
             return True
         console.print(f"profile -> {state['profile']}")
+        _print_auth_hint(runtime, profile_name=str(state["profile"]), execute=bool(state["execute"]))
+        return True
+    if command in {"apikey", "login"}:
+        if len(parts) == 1 or parts[1] in {"list", "ls"}:
+            _print_apikey_table(runtime, active_profile=str(state["profile"]) if state["profile"] else None)
+            return True
+        action = parts[1]
+        if action == "set" and len(parts) >= 3:
+            scope = "global"
+            remainder = parts[3:]
+            if remainder and remainder[-1].lower() in {"global", "project"}:
+                scope = remainder[-1].lower()
+                remainder = remainder[:-1]
+            value = " ".join(remainder).strip() if remainder else ""
+            if not value:
+                value = Prompt.ask(f"API key for {parts[2]}", password=True).strip()
+            try:
+                payload = runtime.set_api_key(parts[2], value, scope=scope)
+            except (KeyError, ValueError) as exc:
+                console.print(str(exc))
+                return True
+            console.print(f"stored {payload['api_key_env']} in {scope} auth store as {payload['masked_value']}")
+            return True
+        if action in {"clear", "rm", "remove"} and len(parts) >= 3:
+            scope = parts[3].lower() if len(parts) >= 4 and parts[3].lower() in {"global", "project"} else "global"
+            try:
+                payload = runtime.clear_api_key(parts[2], scope=scope)
+            except KeyError as exc:
+                console.print(str(exc))
+                return True
+            console.print(f"cleared {payload['api_key_env']} from {scope} auth store")
+            return True
+        console.print("usage: /apikey | /apikey set <profile> [key] [global|project] | /apikey clear <profile> [global|project]")
+        return True
+    if command == "activity":
+        if len(parts) < 2:
+            console.print(f"activity -> {'on' if state['activity'] else 'off'}")
+            return True
+        state["activity"] = parts[1].lower() in {"on", "true", "1", "yes"}
+        console.print(f"activity -> {'on' if state['activity'] else 'off'}")
         return True
     if command in {"clear", "new", "reset"}:
         created = runtime.create_session(profile_name=str(state["profile"]) if state["profile"] else None)
@@ -225,6 +373,7 @@ def _handle_chat_command(runtime: AgentRuntime, line: str, *, state: dict[str, o
             use_subagents=bool(state["subagents"]),
             allow_web=bool(state["allow_web"]),
         )
+        _print_auth_hint(runtime, profile_name=str(state["profile"]) if state["profile"] else None, execute=bool(state["execute"]))
         return True
     if command == "resume":
         if len(parts) < 2:
@@ -261,6 +410,7 @@ def _handle_chat_command(runtime: AgentRuntime, line: str, *, state: dict[str, o
             use_subagents=bool(state["subagents"]),
             allow_web=bool(state["allow_web"]),
         )
+        _print_auth_hint(runtime, profile_name=str(state["profile"]) if state["profile"] else None, execute=bool(state["execute"]))
         return True
     if command == "skills":
         if len(parts) == 1:
@@ -358,6 +508,7 @@ def _new_state(
     use_subagents: bool,
     allow_web: bool,
     execute: bool,
+    activity: bool = True,
 ) -> dict[str, object]:
     return {
         "session_id": session_id,
@@ -366,6 +517,7 @@ def _new_state(
         "subagents": use_subagents,
         "allow_web": allow_web,
         "execute": execute,
+        "activity": activity,
     }
 
 
@@ -386,6 +538,7 @@ def _repl_loop(runtime: AgentRuntime, *, state: dict[str, object], debug: bool) 
             selected_skills=list(state["skills"]),
             use_subagents=bool(state["subagents"]),
         )
+        _print_activity(result, enabled=bool(state["activity"]))
         _print_chat_reply(result)
 
 
@@ -426,14 +579,17 @@ def _launch_native_entry(
             selected_skills=skill or None,
             use_subagents=use_subagents,
         )
+        _print_activity(result)
         _print_chat_reply(result)
         return
 
     if prompt_text is not None:
+        selected_profile = profile_name or (session.profile if session else None)
+        _print_auth_hint(runtime, profile_name=selected_profile, execute=execute)
         result = runtime.chat_turn(
             prompt_text,
             session_id=session.session_id if session else None,
-            profile_name=profile_name or (session.profile if session else None),
+            profile_name=selected_profile,
             debug=debug,
             execute=execute,
             allow_web=allow_web,
@@ -442,6 +598,7 @@ def _launch_native_entry(
         )
         state["session_id"] = result.session_id
         state["profile"] = result.summary.profile
+        _print_activity(result, enabled=bool(state["activity"]))
         _print_chat_reply(result)
         _repl_loop(runtime, state=state, debug=debug)
         return
@@ -457,6 +614,7 @@ def _launch_native_entry(
         use_subagents=bool(state["subagents"]),
         allow_web=bool(state["allow_web"]),
     )
+    _print_auth_hint(runtime, profile_name=str(state["profile"]) if state["profile"] else None, execute=bool(state["execute"]))
     _repl_loop(runtime, state=state, debug=debug)
 
 
@@ -590,6 +748,7 @@ def chat_start(
         )
         state["session_id"] = result.session_id
         state["profile"] = result.summary.profile
+        _print_activity(result, enabled=bool(state["activity"]))
         _print_chat_reply(result, show_session=True)
         if one_shot:
             return
@@ -605,6 +764,7 @@ def chat_start(
             use_subagents=bool(state["subagents"]),
             allow_web=bool(state["allow_web"]),
         )
+        _print_auth_hint(runtime, profile_name=str(state["profile"]) if state["profile"] else None, execute=bool(state["execute"]))
 
     _repl_loop(runtime, state=state, debug=debug)
 
@@ -642,6 +802,7 @@ def chat_resume(
             selected_skills=list(state["skills"]),
             use_subagents=bool(state["subagents"]),
         )
+        _print_activity(result, enabled=bool(state["activity"]))
         _print_chat_reply(result, show_session=True)
         if one_shot:
             return
@@ -652,6 +813,7 @@ def chat_resume(
         use_subagents=bool(state["subagents"]),
         allow_web=bool(state["allow_web"]),
     )
+    _print_auth_hint(runtime, profile_name=str(state["profile"]) if state["profile"] else None, execute=bool(state["execute"]))
     _repl_loop(runtime, state=state, debug=debug)
 
 
@@ -835,15 +997,51 @@ def models_list(
     config: Path | None = typer.Option(None, "--config"),
 ) -> None:
     runtime = _runtime(config)
-    table = Table(title="Profiles")
-    table.add_column("name")
-    table.add_column("provider")
-    table.add_column("model")
-    table.add_column("api_key_env")
-    table.add_column("base_url")
-    for profile in runtime.config.profiles.values():
-        table.add_row(profile.name, profile.provider, profile.model, profile.api_key_env, profile.base_url or "-")
-    console.print(table)
+    _print_models_table(runtime, active_profile=runtime.config.default_profile)
+
+
+@models_app.command("current")
+def models_current(
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
+    runtime = _runtime(config)
+    profile = runtime.resolve_profile(runtime.config.default_profile)
+    console.print(
+        f"profile={profile.name}  provider={profile.provider}  model={profile.model}  "
+        f"auth={_auth_status_text(runtime, profile.name)}"
+    )
+
+
+@apikey_app.command("list")
+def apikey_list(
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
+    runtime = _runtime(config)
+    _print_apikey_table(runtime, active_profile=runtime.config.default_profile)
+
+
+@apikey_app.command("set")
+def apikey_set(
+    selector: str = typer.Argument(..., help="Profile name, model name, or API key env var."),
+    value: str | None = typer.Argument(None, help="API key value; prompt securely if omitted."),
+    scope: str = typer.Option("global", "--scope", help="Auth store scope: global or project."),
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
+    runtime = _runtime(config)
+    key_value = value.strip() if value else Prompt.ask(f"API key for {selector}", password=True).strip()
+    payload = runtime.set_api_key(selector, key_value, scope=scope)
+    console.print(JSON.from_data(payload))
+
+
+@apikey_app.command("clear")
+def apikey_clear(
+    selector: str = typer.Argument(..., help="Profile name, model name, or API key env var."),
+    scope: str = typer.Option("global", "--scope", help="Auth store scope: global or project."),
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
+    runtime = _runtime(config)
+    payload = runtime.clear_api_key(selector, scope=scope)
+    console.print(JSON.from_data(payload))
 
 
 @mcp_app.command("list")

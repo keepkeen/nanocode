@@ -15,6 +15,8 @@ def resolve_paths(cwd: Path) -> NanocliPaths:
     return NanocliPaths(
         global_config=global_config_dir / "config.toml",
         project_config=project_dir / "config.toml",
+        global_auth=global_config_dir / "auth.json",
+        project_auth=project_dir / "auth.json",
         data_dir=data_dir,
         project_dir=project_dir,
         db_path=data_dir / "state.db",
