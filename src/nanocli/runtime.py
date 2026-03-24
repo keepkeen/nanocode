@@ -442,6 +442,7 @@ class AgentRuntime:
             plan_json=plan_json,
             todo_items=[todo.to_dict() for todo in state.todos],
             memory_export=session_snapshot,
+            assistant_text=summary_text,
             provider_request=request_payload,
             provider_response=provider_response,
             disclosures=disclosures,
@@ -532,6 +533,33 @@ class AgentRuntime:
     def rebuild_project_memory(self) -> dict[str, Any]:
         self.memory.refresh_project_context()
         return self.read_project_memory_snapshot()
+
+    def compact_session(self, session_id: str, *, instructions: str | None = None) -> dict[str, Any]:
+        namespace = self._session_namespace(session_id)
+        blocks = self.memory.compactor.compact(namespace=namespace)
+        self.store.append_session_event(
+            session_id,
+            name="session_compacted",
+            payload={
+                "instructions": instructions or "",
+                "block_count": len(blocks),
+                "block_ids": [block.block_id for block in blocks],
+            },
+        )
+        return {
+            "session_id": session_id,
+            "instructions": instructions or "",
+            "block_count": len(blocks),
+            "blocks": [
+                {
+                    "block_id": block.block_id,
+                    "kind": block.kind.value,
+                    "plane": block.plane.value,
+                    "text": block.text,
+                }
+                for block in blocks
+            ],
+        }
 
     def list_mcp_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
         return self.store.list_mcp_sessions(limit=limit)

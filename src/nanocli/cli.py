@@ -8,18 +8,38 @@ import subprocess
 import sys
 from glob import glob
 
+import click
 import typer
 from rich.console import Console
 from rich.json import JSON
 from rich.prompt import Prompt
 from rich.table import Table
+from typer.core import TyperGroup
 
 from .mcp_client import call_server_tool, inspect_server, list_server_tools, ping_server, render_server_payload, serve_http, serve_stdio
+from .models import SessionSummary
 from .runtime import AgentRuntime
 from .tui import NanocliInspectorApp
 
 
-app = typer.Typer(help="Local coding agent shell with memory OS and trace capture.", no_args_is_help=True)
+class RootPromptGroup(TyperGroup):
+    def resolve_command(self, ctx: click.Context, args: list[str]):
+        try:
+            return super().resolve_command(ctx, args)
+        except click.UsageError:
+            if args and not args[0].startswith("-") and "__default__" in self.commands:
+                command = self.get_command(ctx, "__default__")
+                if command is not None:
+                    return "__default__", command, args
+            raise
+
+
+app = typer.Typer(
+    cls=RootPromptGroup,
+    help="Local coding agent shell with memory OS and trace capture.",
+    no_args_is_help=False,
+    invoke_without_command=True,
+)
 chat_app = typer.Typer(help="Persistent session chat and REPL commands.", no_args_is_help=True)
 plan_app = typer.Typer(help="Inspect and update persisted planner state.", no_args_is_help=True)
 trace_app = typer.Typer(help="Inspect recorded run traces.", no_args_is_help=True)
@@ -47,7 +67,7 @@ def _runtime(config: Path | None = None) -> AgentRuntime:
 
 
 def _print_run_result(result) -> None:
-    table = Table(title="nanocli run")
+    table = Table(title="nanocode run")
     table.add_column("Field")
     table.add_column("Value")
     table.add_row("run_id", result.summary.run_id)
@@ -61,9 +81,93 @@ def _print_run_result(result) -> None:
     console.print(table)
 
 
-def _print_chat_reply(result) -> None:
-    console.print(f"[bold]session[/bold] {result.session_id}")
-    console.print(result.summary.summary or "No summary returned.")
+def _print_chat_reply(result, *, show_session: bool = False) -> None:
+    if show_session and result.session_id:
+        console.print(f"[dim]session {result.session_id}[/dim]")
+    console.print(result.assistant_text or result.summary.summary or "No summary returned.")
+
+
+def _project_sessions(runtime: AgentRuntime, *, limit: int = 50) -> list[SessionSummary]:
+    return [session for session in runtime.list_sessions(limit=limit) if session.cwd == runtime.cwd]
+
+
+def _resolve_profile_selector(runtime: AgentRuntime, selector: str | None) -> str | None:
+    if selector is None:
+        return None
+    if selector in runtime.config.profiles:
+        return selector
+    matches = [name for name, profile in runtime.config.profiles.items() if profile.model == selector]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise typer.BadParameter(f"Ambiguous model selector {selector!r}; matching profiles: {', '.join(matches)}")
+    raise typer.BadParameter(f"Unknown model/profile selector: {selector}")
+
+
+def _resolve_session_reference(
+    runtime: AgentRuntime,
+    *,
+    reference: str | None = None,
+    continue_last: bool = False,
+) -> SessionSummary | None:
+    sessions = _project_sessions(runtime, limit=200)
+    if continue_last:
+        if not sessions:
+            raise typer.BadParameter("No previous sessions found in this workspace.")
+        return sessions[0]
+    if reference is None:
+        return None
+
+    for session in sessions:
+        if session.session_id == reference:
+            return session
+
+    prefix_matches = [session for session in sessions if session.session_id.startswith(reference)]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
+    if len(prefix_matches) > 1:
+        raise typer.BadParameter(f"Session reference {reference!r} matches multiple session ids.")
+
+    title_matches = [session for session in sessions if session.title == reference]
+    if len(title_matches) == 1:
+        return title_matches[0]
+    if len(title_matches) > 1:
+        raise typer.BadParameter(f"Session title {reference!r} matches multiple sessions; use a session id prefix.")
+
+    raise typer.BadParameter(f"No session found for reference: {reference}")
+
+
+def _print_session_banner(session: SessionSummary, *, skills: list[str], use_subagents: bool, allow_web: bool) -> None:
+    console.print(
+        f"[dim]session {session.session_id}  profile={session.profile}  title={session.title}  "
+        f"skills={','.join(skills) if skills else '-'}  subagents={'on' if use_subagents else 'off'}  "
+        f"web={'on' if allow_web else 'off'}[/dim]"
+    )
+
+
+def _print_status(runtime: AgentRuntime, *, state: dict[str, object]) -> None:
+    session = runtime.get_session(str(state["session_id"]))
+    table = Table(title="nanocode status")
+    table.add_column("field")
+    table.add_column("value")
+    table.add_row("session", session.session_id)
+    table.add_row("profile", str(state["profile"]))
+    table.add_row("title", session.title)
+    table.add_row("last_run_id", session.last_run_id or "-")
+    table.add_row("skills", ", ".join(state["skills"]) if state["skills"] else "-")
+    table.add_row("subagents", "on" if state["subagents"] else "off")
+    table.add_row("web", "on" if state["allow_web"] else "off")
+    table.add_row("execute", "on" if state["execute"] else "off")
+    console.print(table)
+
+
+def _print_slash_help() -> None:
+    console.print(
+        "/help, /session, /status, /model <profile|model>, /resume <session|last>, "
+        "/clear, /new, /skills, /skills add <name>, /skills drop <name>, /subagents on|off, "
+        "/permissions, /mcp, /todo, /done <step_id>, /block <step_id> [reason], "
+        "/replan, /compact [instructions], /trace, /quit"
+    )
 
 
 def _print_plan_state(runtime: AgentRuntime, session_id: str) -> None:
@@ -88,16 +192,75 @@ def _handle_chat_command(runtime: AgentRuntime, line: str, *, state: dict[str, o
 
     if command in {"quit", "exit"}:
         raise typer.Exit()
+    if command in {"help", "?"}:
+        _print_slash_help()
+        return True
     if command == "session":
         session = runtime.get_session(str(state["session_id"]))
         console.print(f"{session.session_id}  {session.profile}  {session.status}  {session.title}")
         return True
+    if command == "status":
+        _print_status(runtime, state=state)
+        return True
     if command == "model":
         if len(parts) < 2:
-            console.print("usage: /model <profile>")
+            profile_name = str(state["profile"])
+            profile = runtime.resolve_profile(profile_name)
+            console.print(f"profile={profile.name}  provider={profile.provider}  model={profile.model}")
             return True
-        state["profile"] = parts[1]
-        console.print(f"profile -> {parts[1]}")
+        try:
+            state["profile"] = _resolve_profile_selector(runtime, parts[1])
+        except typer.BadParameter as exc:
+            console.print(str(exc))
+            return True
+        console.print(f"profile -> {state['profile']}")
+        return True
+    if command in {"clear", "new", "reset"}:
+        created = runtime.create_session(profile_name=str(state["profile"]) if state["profile"] else None)
+        state["session_id"] = created.session_id
+        state["profile"] = created.profile
+        _print_session_banner(
+            created,
+            skills=list(state["skills"]),
+            use_subagents=bool(state["subagents"]),
+            allow_web=bool(state["allow_web"]),
+        )
+        return True
+    if command == "resume":
+        if len(parts) < 2:
+            sessions = _project_sessions(runtime, limit=10)
+            if not sessions:
+                console.print("no sessions found in this workspace")
+                return True
+            table = Table(title="Recent Sessions")
+            table.add_column("session_id")
+            table.add_column("profile")
+            table.add_column("title")
+            for session in sessions:
+                table.add_row(session.session_id, session.profile, session.title)
+            console.print(table)
+            return True
+        reference = " ".join(parts[1:])
+        try:
+            session = _resolve_session_reference(
+                runtime,
+                reference=None if reference in {"last", "latest"} else reference,
+                continue_last=reference in {"last", "latest"},
+            )
+        except typer.BadParameter as exc:
+            console.print(str(exc))
+            return True
+        if session is None:
+            console.print("no session resolved")
+            return True
+        state["session_id"] = session.session_id
+        state["profile"] = session.profile
+        _print_session_banner(
+            session,
+            skills=list(state["skills"]),
+            use_subagents=bool(state["subagents"]),
+            allow_web=bool(state["allow_web"]),
+        )
         return True
     if command == "skills":
         if len(parts) == 1:
@@ -125,6 +288,26 @@ def _handle_chat_command(runtime: AgentRuntime, line: str, *, state: dict[str, o
         state["subagents"] = parts[1].lower() in {"on", "true", "1", "yes"}
         console.print(f"subagents -> {'on' if state['subagents'] else 'off'}")
         return True
+    if command == "permissions":
+        console.print(
+            f"approval=never  execute={'on' if state['execute'] else 'off'}  "
+            f"web={'on' if state['allow_web'] else 'off'}  subagents={'on' if state['subagents'] else 'off'}"
+        )
+        return True
+    if command == "mcp":
+        if not runtime.config.mcp_servers:
+            console.print("no MCP servers configured")
+            return True
+        table = Table(title="Configured MCP Servers")
+        table.add_column("name")
+        table.add_column("transport")
+        table.add_column("mode")
+        table.add_column("target")
+        for server in runtime.config.mcp_servers.values():
+            target = server.url or " ".join(server.command)
+            table.add_row(server.name, server.transport, server.integration_mode, target)
+        console.print(table)
+        return True
     if command == "todo":
         _print_plan_state(runtime, str(state["session_id"]))
         return True
@@ -147,6 +330,13 @@ def _handle_chat_command(runtime: AgentRuntime, line: str, *, state: dict[str, o
         runtime.replan_session(str(state["session_id"]))
         _print_plan_state(runtime, str(state["session_id"]))
         return True
+    if command == "compact":
+        payload = runtime.compact_session(
+            str(state["session_id"]),
+            instructions=" ".join(parts[1:]) if len(parts) > 1 else None,
+        )
+        console.print(JSON.from_data(payload))
+        return True
     if command == "trace":
         session = runtime.get_session(str(state["session_id"]))
         if session.last_run_id:
@@ -156,8 +346,184 @@ def _handle_chat_command(runtime: AgentRuntime, line: str, *, state: dict[str, o
         else:
             console.print("no completed run yet")
         return True
-    console.print("commands: /session, /model <profile>, /skills, /skills add <name>, /skills drop <name>, /subagents on|off, /todo, /done <step_id>, /block <step_id> [reason], /replan, /trace, /quit")
+    _print_slash_help()
     return True
+
+
+def _new_state(
+    *,
+    session_id: str | None,
+    profile: str | None,
+    skills: list[str] | None,
+    use_subagents: bool,
+    allow_web: bool,
+    execute: bool,
+) -> dict[str, object]:
+    return {
+        "session_id": session_id,
+        "profile": profile,
+        "skills": list(skills or []),
+        "subagents": use_subagents,
+        "allow_web": allow_web,
+        "execute": execute,
+    }
+
+
+def _repl_loop(runtime: AgentRuntime, *, state: dict[str, object], debug: bool) -> None:
+    while True:
+        line = Prompt.ask("[bold cyan]nanocode[/bold cyan]")
+        if not line.strip():
+            continue
+        if _handle_chat_command(runtime, line, state=state):
+            continue
+        result = runtime.chat_turn(
+            line,
+            session_id=str(state["session_id"]),
+            profile_name=str(state["profile"]) if state["profile"] else None,
+            debug=debug,
+            execute=bool(state["execute"]),
+            allow_web=bool(state["allow_web"]),
+            selected_skills=list(state["skills"]),
+            use_subagents=bool(state["subagents"]),
+        )
+        _print_chat_reply(result)
+
+
+def _launch_native_entry(
+    runtime: AgentRuntime,
+    *,
+    prompt_text: str | None,
+    profile_name: str | None,
+    continue_last: bool,
+    resume: str | None,
+    print_mode: bool,
+    debug: bool,
+    execute: bool,
+    allow_web: bool,
+    skill: list[str] | None,
+    use_subagents: bool,
+) -> None:
+    session = _resolve_session_reference(runtime, reference=resume, continue_last=continue_last)
+    state = _new_state(
+        session_id=session.session_id if session else None,
+        profile=session.profile if session else profile_name,
+        skills=skill,
+        use_subagents=use_subagents,
+        allow_web=allow_web,
+        execute=execute,
+    )
+
+    if print_mode:
+        if prompt_text is None:
+            raise typer.BadParameter("--print requires a prompt.")
+        result = runtime.chat_turn(
+            prompt_text,
+            session_id=session.session_id if session else None,
+            profile_name=profile_name or (session.profile if session else None),
+            debug=debug,
+            execute=execute,
+            allow_web=allow_web,
+            selected_skills=skill or None,
+            use_subagents=use_subagents,
+        )
+        _print_chat_reply(result)
+        return
+
+    if prompt_text is not None:
+        result = runtime.chat_turn(
+            prompt_text,
+            session_id=session.session_id if session else None,
+            profile_name=profile_name or (session.profile if session else None),
+            debug=debug,
+            execute=execute,
+            allow_web=allow_web,
+            selected_skills=skill or None,
+            use_subagents=use_subagents,
+        )
+        state["session_id"] = result.session_id
+        state["profile"] = result.summary.profile
+        _print_chat_reply(result)
+        _repl_loop(runtime, state=state, debug=debug)
+        return
+
+    if session is None:
+        session = runtime.create_session(profile_name=profile_name or runtime.config.chat.default_repl_profile or runtime.config.default_profile)
+        state["session_id"] = session.session_id
+        state["profile"] = session.profile
+
+    _print_session_banner(
+        session,
+        skills=list(state["skills"]),
+        use_subagents=bool(state["subagents"]),
+        allow_web=bool(state["allow_web"]),
+    )
+    _repl_loop(runtime, state=state, debug=debug)
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    ctx: typer.Context,
+    model: str | None = typer.Option(None, "--model", "-m", help="Profile name or configured model name."),
+    continue_last: bool = typer.Option(False, "--continue", "-c", help="Resume the most recent session in this workspace."),
+    resume: str | None = typer.Option(None, "--resume", help="Resume a session by id prefix or exact title."),
+    print_mode: bool = typer.Option(False, "--print", "-p", help="Send one prompt and exit without entering the REPL."),
+    debug: bool = typer.Option(False, "--debug", help="Persist extra debug artifacts."),
+    execute: bool = typer.Option(True, "--execute/--no-execute", help="Call the remote model provider."),
+    allow_web: bool = typer.Option(False, "--search", "--allow-web", help="Enable web tools when API keys are present."),
+    skill: list[str] = typer.Option(None, "--skill", help="Enable one or more runtime skills."),
+    use_subagents: bool = typer.Option(False, "--subagents", help="Enable local subagent delegation."),
+    config: Path | None = typer.Option(None, "--config", help="Explicit config file path."),
+) -> None:
+    if continue_last and resume is not None:
+        raise typer.BadParameter("Use either --continue or --resume, not both.")
+    runtime = _runtime(config)
+    profile_name = _resolve_profile_selector(runtime, model)
+    ctx.obj = {
+        "profile_name": profile_name,
+        "continue_last": continue_last,
+        "resume": resume,
+        "print_mode": print_mode,
+        "debug": debug,
+        "execute": execute,
+        "allow_web": allow_web,
+        "skill": skill or [],
+        "use_subagents": use_subagents,
+        "config": config,
+    }
+    if ctx.invoked_subcommand is not None:
+        return
+    _launch_native_entry(
+        runtime,
+        prompt_text=None,
+        profile_name=profile_name,
+        continue_last=continue_last,
+        resume=resume,
+        print_mode=print_mode,
+        debug=debug,
+        execute=execute,
+        allow_web=allow_web,
+        skill=skill,
+        use_subagents=use_subagents,
+    )
+
+
+@app.command("__default__", hidden=True)
+def root_prompt(ctx: typer.Context, prompt: list[str] = typer.Argument(..., metavar="PROMPT")) -> None:
+    options = dict(ctx.find_root().obj or {})
+    runtime = _runtime(options.get("config"))
+    _launch_native_entry(
+        runtime,
+        prompt_text=" ".join(prompt).strip(),
+        profile_name=options.get("profile_name"),
+        continue_last=bool(options.get("continue_last")),
+        resume=options.get("resume"),
+        print_mode=bool(options.get("print_mode")),
+        debug=bool(options.get("debug")),
+        execute=bool(options.get("execute", True)),
+        allow_web=bool(options.get("allow_web")),
+        skill=list(options.get("skill") or []),
+        use_subagents=bool(options.get("use_subagents")),
+    )
 
 
 @app.command()
@@ -202,18 +568,20 @@ def chat_start(
     config: Path | None = typer.Option(None, "--config"),
 ) -> None:
     runtime = _runtime(config)
-    state: dict[str, object] = {
-        "session_id": None,
-        "profile": profile,
-        "skills": skill or [],
-        "subagents": use_subagents,
-    }
+    state = _new_state(
+        session_id=None,
+        profile=_resolve_profile_selector(runtime, profile),
+        skills=skill,
+        use_subagents=use_subagents,
+        allow_web=allow_web,
+        execute=execute,
+    )
 
     if prompt is not None:
         result = runtime.chat_turn(
             prompt,
             session_id=None,
-            profile_name=profile,
+            profile_name=str(state["profile"]) if state["profile"] else None,
             debug=debug,
             execute=execute,
             allow_web=allow_web,
@@ -222,32 +590,23 @@ def chat_start(
         )
         state["session_id"] = result.session_id
         state["profile"] = result.summary.profile
-        _print_chat_reply(result)
+        _print_chat_reply(result, show_session=True)
         if one_shot:
             return
     else:
-        created = runtime.create_session(profile_name=profile or runtime.config.chat.default_repl_profile or runtime.config.default_profile)
+        created = runtime.create_session(
+            profile_name=str(state["profile"]) if state["profile"] else runtime.config.chat.default_repl_profile or runtime.config.default_profile
+        )
         state["session_id"] = created.session_id
         state["profile"] = created.profile
-
-    console.print(f"session {state['session_id']}  profile={state['profile']}")
-    while True:
-        line = Prompt.ask("user")
-        if not line.strip():
-            continue
-        if _handle_chat_command(runtime, line, state=state):
-            continue
-        result = runtime.chat_turn(
-            line,
-            session_id=str(state["session_id"]),
-            profile_name=str(state["profile"]) if state["profile"] else None,
-            debug=debug,
-            execute=execute,
-            allow_web=allow_web,
-            selected_skills=list(state["skills"]),
+        _print_session_banner(
+            created,
+            skills=list(state["skills"]),
             use_subagents=bool(state["subagents"]),
+            allow_web=bool(state["allow_web"]),
         )
-        _print_chat_reply(result)
+
+    _repl_loop(runtime, state=state, debug=debug)
 
 
 @chat_app.command("resume")
@@ -264,12 +623,14 @@ def chat_resume(
 ) -> None:
     runtime = _runtime(config)
     session = runtime.get_session(session_id)
-    state: dict[str, object] = {
-        "session_id": session_id,
-        "profile": session.profile,
-        "skills": skill or [],
-        "subagents": use_subagents,
-    }
+    state = _new_state(
+        session_id=session_id,
+        profile=session.profile,
+        skills=skill,
+        use_subagents=use_subagents,
+        allow_web=allow_web,
+        execute=execute,
+    )
     if prompt is not None:
         result = runtime.chat_turn(
             prompt,
@@ -281,28 +642,17 @@ def chat_resume(
             selected_skills=list(state["skills"]),
             use_subagents=bool(state["subagents"]),
         )
-        _print_chat_reply(result)
+        _print_chat_reply(result, show_session=True)
         if one_shot:
             return
 
-    console.print(f"session {session_id}  profile={session.profile}  title={session.title}")
-    while True:
-        line = Prompt.ask("user")
-        if not line.strip():
-            continue
-        if _handle_chat_command(runtime, line, state=state):
-            continue
-        result = runtime.chat_turn(
-            line,
-            session_id=session_id,
-            profile_name=str(state["profile"]),
-            debug=debug,
-            execute=execute,
-            allow_web=allow_web,
-            selected_skills=list(state["skills"]),
-            use_subagents=bool(state["subagents"]),
-        )
-        _print_chat_reply(result)
+    _print_session_banner(
+        session,
+        skills=list(state["skills"]),
+        use_subagents=bool(state["subagents"]),
+        allow_web=bool(state["allow_web"]),
+    )
+    _repl_loop(runtime, state=state, debug=debug)
 
 
 @chat_app.command("list")

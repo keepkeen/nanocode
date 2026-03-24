@@ -36,6 +36,30 @@ All examples below work with `nanocode`. `nanocli` remains available as a compat
 
 ## Quick start
 
+Start an interactive coding session directly:
+
+```bash
+nanocode
+```
+
+Start with an initial prompt:
+
+```bash
+nanocode "Implement a cache-safe planner"
+```
+
+Continue the most recent session in the current workspace:
+
+```bash
+nanocode --continue
+```
+
+Run one prompt and exit:
+
+```bash
+nanocode --print "Summarize the current repository and propose the next step"
+```
+
 Create a config file at `~/.config/nanocli/config.toml` or `.nanocli/config.toml`:
 
 ```toml
@@ -61,33 +85,37 @@ base_url = "https://api.deepseek.com"
 Run a task:
 
 ```bash
-nanocli run "Implement a cache-safe planner" --debug
+nanocode "Implement a cache-safe planner" --debug
 ```
 
 Start a persistent chat session:
 
 ```bash
-nanocli chat start "Research and implement a planner runtime" --skill travel-weather-briefing --subagents
-nanocli chat resume <session-id>
+nanocode chat start "Research and implement a planner runtime" --skill travel-weather-briefing --subagents
+nanocode chat resume <session-id>
 ```
 
 Available REPL commands:
 
 ```text
+/help
 /session
+/status
 /model <profile>
+/resume <session|last>
+/clear
 /skills
 /skills add <name>
 /skills drop <name>
 /subagents on|off
+/permissions
+/mcp
 /todo
 /done <step_id>
 /block <step_id> [reason]
 /replan
+/compact [instructions]
 /trace
-/memory show
-/memory pin <candidate_id>
-/memory reject <candidate_id>
 /quit
 ```
 

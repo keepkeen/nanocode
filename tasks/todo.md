@@ -224,3 +224,27 @@
   - `/tmp/nanocode-prefix/bin/nanocode --help` -> passed
   - `/tmp/nanocode-prefix/bin/nanocli --help` -> passed
   - `git push -u origin main` -> pushed to `https://github.com/keepkeen/nanocode.git`
+
+## Native CLI UX Alignment
+
+- [x] Make `nanocode` launch an interactive session directly instead of only showing subcommand help.
+- [x] Support root-level habits similar to Codex CLI / Claude Code: optional prompt argument, `--print`, `--continue`, `--resume`, and `--model`.
+- [x] Improve REPL output so replies read like a coding assistant session instead of a run summary.
+- [x] Add common slash-command habits like `/help`, `/status`, `/clear`, `/resume`, `/permissions`, `/mcp`, and `/compact`.
+- [x] Update README quick-start docs and cover the new flow with CLI tests and smoke checks.
+
+## Native CLI UX Alignment Review
+
+- `nanocode` now behaves like a native coding CLI entrypoint: running `nanocode` opens a session directly, `nanocode "prompt"` starts with an initial task, `nanocode --print "prompt"` runs one turn and exits, and `nanocode --continue` resumes the latest workspace session.
+- The root command no longer depends on a subcommand for normal use; a custom group fallback routes bare prompt text into the default session handler without breaking existing `run`, `chat`, `plan`, `trace`, `memory`, `mcp`, `skills`, and `subagents` subcommands.
+- REPL output now prints assistant-style replies instead of just a run summary, and the slash-command surface now includes `/help`, `/status`, `/clear`, `/resume`, `/permissions`, `/mcp`, and `/compact` in addition to the existing planning and tracing controls.
+- Verification completed:
+  - `.venv/bin/pytest -ra` -> `29 passed, 1 skipped`
+  - `.venv/bin/pytest tests/test_cli.py -q` -> `4 passed`
+  - `.venv/bin/nanocli release check --skip-tests`
+  - `.venv/bin/python -m nanocli.cli --no-execute --print Research the planner`
+  - `.venv/bin/python -m pip install --no-build-isolation --no-deps --prefix /tmp/nanocode-cli.xGOl8T "nanocode @ git+file:///Users/liuliming/code/My_agent"`
+  - `/tmp/nanocode-cli.xGOl8T/bin/nanocode --no-execute --print Research the planner`
+  - `printf '/status\n/quit\n' | /tmp/nanocode-cli.xGOl8T/bin/nanocode --no-execute`
+  - `/tmp/nanocode-cli.xGOl8T/bin/nanocode --continue --no-execute --print Follow up`
+  - `/tmp/nanocode-cli.xGOl8T/bin/nanocli --no-execute --print Follow up`

@@ -273,6 +273,7 @@ class RunResult:
     plan_json: str
     todo_items: list[dict[str, Any]]
     memory_export: dict[str, Any]
+    assistant_text: str | None = None
     provider_request: dict[str, Any] | None = None
     provider_response: dict[str, Any] | None = None
     disclosures: list[str] = field(default_factory=list)
